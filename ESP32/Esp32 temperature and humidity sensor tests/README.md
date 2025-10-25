@@ -1,11 +1,12 @@
-# ESP32 DHT Temperature & Humidity fetcher
+# ESP32 DHT Temperature & Humidity fetcher + OLED screen
 
 ## Opis
 
-ESP32 odczytuje temperaturę i wilgotność z DHT11 i wyświetla w Serial Monitorze. Działa samodzielnie po zasileniu.
+ESP32 odczytuje temperaturę i wilgotność z DHT11 i wyświetla w Serial Monitorze oraz na OLED'dzie. Działa samodzielnie po zasileniu.
 
-Tutorial z którego korzystałem: https://randomnerdtutorials.com/esp32-dht11-dht22-temperature-humidity-sensor-arduino-ide/
-
+Tutoriale z których korzystałem:
+- https://randomnerdtutorials.com/esp32-dht11-dht22-temperature-humidity-sensor-arduino-ide/
+- https://randomnerdtutorials.com/esp32-ssd1306-oled-display-arduino-ide/
 ## Wymagania
 
 * ESP32 Dev Module
@@ -16,6 +17,9 @@ Tutorial z którego korzystałem: https://randomnerdtutorials.com/esp32-dht11-dh
 ## Wiring
 
 <img width="357" height="447" alt="image" src="https://github.com/user-attachments/assets/63e8e585-3669-46ec-aba6-02962dd0047d" />
+<img width="362" height="283" alt="image" src="https://github.com/user-attachments/assets/bee6eff5-f0ef-4ad8-ab9a-82eecf0d29ae" />
+
+
 
 ## Popełnione błędy
 
@@ -32,6 +36,7 @@ Tutorial z którego korzystałem: https://randomnerdtutorials.com/esp32-dht11-dh
 ## PlatformIO lib_deps (Biblioteki zewnętrzne zainstalowane)
 ```
 lib_deps = adafruit/DHT sensor library@^1.4.6
+- cos do oleda
 ```
 
 
