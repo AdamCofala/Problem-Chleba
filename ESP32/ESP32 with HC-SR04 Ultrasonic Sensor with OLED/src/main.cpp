@@ -88,6 +88,5 @@ void loop() {
   Serial.print("Distance (cm): ");
   Serial.println(get_distance());
   show_on_oled(get_distance());
-  
-  delay(2500);
+  delay(200);
 }
