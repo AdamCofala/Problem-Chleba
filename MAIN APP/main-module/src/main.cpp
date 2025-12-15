@@ -21,7 +21,6 @@ public:
   MainModule() : newDataAvailable(false), lastDataTime(0) {}
   
   void begin() {
-    Serial.begin(115200);
     Serial.println("Inicjalizacja modułu głównego (OLED)...");
     
     if (!display.begin()) {
@@ -31,12 +30,10 @@ public:
     
     if (!espNow.begin(&currentData, &newDataAvailable)) {
       Serial.println("Nie udało się zainicjalizować ESP-NOW!");
-      display.showError("Błąd ESP-NOW");
       while(1) delay(1000);
     }
     
     Serial.println("Moduł główny gotowy!");
-    printMacAddress();
   }
   
   void loop() {
@@ -45,6 +42,8 @@ public:
       lastDataTime = millis();
       display.showSensorData(currentData);
     }
+
+    display.draw3DAnimation();
     
     // Sprawdź timeout
     if (millis() - lastDataTime > dataTimeout && lastDataTime > 0) {
