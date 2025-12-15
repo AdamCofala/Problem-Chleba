@@ -3,113 +3,109 @@
 #include "sensor_data.h"
 #include "WiFiConfigurator.h"
 
-
-// Inicjalizacja statycznych zmiennych
 SensorData* ESPNowReceiver::receivedData = nullptr;
 bool* ESPNowReceiver::newDataFlag = nullptr;
 
-// Główna klasa aplikacji
 class MainModule {
 private:
-  OLEDDisplay display;
-  ESPNowReceiver espNow;
-  SensorData currentData;
-  WiFiConfigurator wifiCfg;
-  bool newDataAvailable;
-  unsigned long lastDataTime;
-  const unsigned long dataTimeout = 10000; // 10 sekund timeout
-  
+    OLEDDisplay display;
+    ESPNowReceiver espNow;
+    SensorData currentData;
+    WiFiConfigurator wifiCfg;
+    
+    bool newDataAvailable = false;
+    unsigned long lastDataTime = 0;
+    
+    // Logika okna konfiguracyjnego
+    unsigned long configStartTime;
+    const unsigned long configTimeout = 60000; // 25 sekund
+    bool configModeActive = true;
+    bool userInteracted = false;
+
 public:
-  MainModule() : newDataAvailable(false), lastDataTime(0) {}
-  
-  void begin() {
+    void begin() {
+        Serial.begin(115200);
+        display.begin();
+        display.showNoData(); // Wyświetl cokolwiek na start
 
-    wifiCfg.begin();  // Uruchom konfigurator Wi-Fi
+        Serial.println("--- TRYB KONFIGURACJI (60s) ---");
+        wifiCfg.begin(); 
+        configStartTime = millis();
+    }
 
-    // Sprawdź, czy po pominięciu konfiguracji lub błędzie mamy zapisane dane
-    if (wifiCfg.hasCredentials() && wifiCfg.getSSID() != "") {
-        Serial.println("Łączenie z Wi-Fi...");
-        WiFi.begin(
-            wifiCfg.getSSID().c_str(),
-            wifiCfg.getPassword().c_str()
-        );
-
-        unsigned long startTime = millis();
-        const unsigned long timeout = 10000; // 10 sekund na połączenie
-
-        while (WiFi.status() != WL_CONNECTED && millis() - startTime < timeout) {
-            delay(300);
-            Serial.print(".");
-        }
-
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("\nWiFi connected");
-            Serial.println(WiFi.localIP());
-
-            Serial.println("Email do SMTP: " + wifiCfg.getEmail());
-            Serial.println("SSID: " + wifiCfg.getSSID());
+    void loop() {
+        if (configModeActive) {
+            handleConfigMode();
         } else {
-            Serial.println("\nNie udało się połączyć z Wi-Fi. SMTP nie będzie działać.");
+            handleNormalMode();
         }
-    } else {
-        Serial.println("Brak konfiguracji Wi-Fi. SMTP nie będzie działać.");
     }
 
-    Serial.println("Inicjalizacja modułu głównego (OLED)...");
-
-    if (!display.begin()) {
-        Serial.println("Nie udało się zainicjalizować OLED!");
-        while (1) delay(1000);
-    }
-
-    if (!espNow.begin(&currentData, &newDataAvailable)) {
-        Serial.println("Nie udało się zainicjalizować ESP-NOW!");
-        while (1) delay(1000);
-    }
-
-    Serial.println("Moduł główny gotowy!");
-}
-
-  
-  void loop() {
-    if (newDataAvailable) {
-      newDataAvailable = false;
-      lastDataTime = millis();
-      display.showSensorData(currentData);
-    }
-
-    display.draw3DAnimation();
-    
-    // Sprawdź timeout
-    if (millis() - lastDataTime > dataTimeout && lastDataTime > 0) {
-      display.showNoData();
-    }
-    
-    delay(100);
-  }
-  
 private:
-  void printMacAddress() {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    Serial.print("Adres MAC tego ESP32 (UŻYJ GO W NADAJNIKU): ");
-    for (int i = 0; i < 6; i++) {
-      Serial.printf("%02X", mac[i]);
-      if (i < 5) Serial.print(":");
+    void handleConfigMode() {
+        wifiCfg.handleClient();
+        
+        unsigned long elapsed = millis() - configStartTime;
+        int remaining = (configTimeout - elapsed) / 1000;
+
+        // Wyświetlanie odliczania na OLED
+        static int lastSec = -1;
+        if (remaining != lastSec && remaining >= 0) {
+            Serial.printf("Pozostało %d sekund na wejście w konfigurację...\n", remaining);
+            // Tu możesz dodać display.showConfigTimer(remaining) jeśli masz taką metodę
+            lastSec = remaining;
+        }
+
+        // Warunek wyjścia z trybu konfiguracji:
+        // 1. Minął czas ORAZ nikt nie wszedł na stronę
+        // 2. UWAGA: Jeśli chcesz, by po wejściu na stronę czas stał w miejscu, 
+        //    musiałbyś w WiFiConfigurator ustawiać flagę 'userInteracted'.
+        
+        if (elapsed >= configTimeout) {
+            exitConfigMode();
+        }
     }
-    Serial.println();
-    Serial.println("Skopiuj ten adres do zmiennej receiverAddress w kodzie nadajnika!");
-  }
+
+    void exitConfigMode() {
+        Serial.println("Zamykanie trybu konfiguracji...");
+        wifiCfg.stop();
+        configModeActive = false;
+
+        // DOPIERO TERAZ inicjalizujemy ESP-NOW
+        if (espNow.begin(&currentData, &newDataAvailable)) {
+            Serial.println("ESP-NOW gotowe do pracy.");
+        }
+
+        // Jeśli są dane WiFi, łączymy się w tle
+        if (wifiCfg.hasCredentials()) {
+            WiFi.mode(WIFI_AP_STA); // Przywracamy tryb mieszany dla ESP-NOW + STA
+            WiFi.begin(wifiCfg.getSSID().c_str(), wifiCfg.getPassword().c_str());
+            Serial.println("Próba łączenia z WiFi w tle...");
+        }
+    }
+
+    void handleNormalMode() {
+        // Standardowa praca urządzenia
+        if (newDataAvailable) {
+            newDataAvailable = false;
+            lastDataTime = millis();
+            display.showSensorData(currentData);
+        }
+
+        display.draw3DAnimation();
+
+        if (millis() - lastDataTime > 10000 && lastDataTime > 0) {
+            display.showNoData();
+        }
+    }
 };
 
-// Instancja głównej klasy
 MainModule mainModule;
 
 void setup() {
-  Serial.begin(115200);
-  mainModule.begin();
+    mainModule.begin();
 }
 
 void loop() {
-  mainModule.loop();
+    mainModule.loop();
 }
