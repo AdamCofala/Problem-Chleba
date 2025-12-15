@@ -22,4 +22,5 @@ private:
 
     void handleRoot();
     void handleSave();
+    void handleSkip();
 };
