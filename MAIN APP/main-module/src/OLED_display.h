@@ -1,119 +1,156 @@
 #pragma once
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Wire.h>
 #include "sensor_data.h"
-#include "animation.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-#define OLED_ADDR 0x3C
+#define SCREEN_ADDRESS 0x3C
 
-// I2C buses
-TwoWire I2C_SENSORS = TwoWire(0);
-TwoWire I2C_ANIM    = TwoWire(1);
-
-// -------------------------------------------------------------
-// OLEDDisplay – 2 OLEDy, sensordata + animacja 3D
-// -------------------------------------------------------------
 class OLEDDisplay {
 private:
-    Adafruit_SSD1306 dspSensors;
-    Adafruit_SSD1306 dspAnim;
-
-    JarRenderer jar;
-    BubbleSystem bubbles;
-
-    bool initialized = false;
-
+  Adafruit_SSD1306 display;
+  bool initialized;
+  
 public:
-    OLEDDisplay()
-        : dspSensors(SCREEN_WIDTH, SCREEN_HEIGHT, &I2C_SENSORS, OLED_RESET),
-          dspAnim   (SCREEN_WIDTH, SCREEN_HEIGHT, &I2C_ANIM, OLED_RESET)
-    {}
-
-    bool begin() {
-        // Start I2C
-        I2C_SENSORS.begin(21,22);
-        I2C_ANIM.begin(5,18);
-
-        if (!dspSensors.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
-            return false;
-        if (!dspAnim.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
-            return false;
-
-        // Ustawienia
-        dspSensors.clearDisplay();
-        dspSensors.display();
-
-        dspAnim.clearDisplay();
-        dspAnim.display();
-
-        // Inicjalizacja systemu bąbelków
-        bubbles.init(
-            jar.x + 6,
-            jar.x + jar.w - 6,
-            jar.y + 4,
-            jar.y + jar.h - 6
-        );
-
-        initialized = true;
-        return true;
-    }
-    void showNoData() {
-      if (!initialized) return;
-      
-      dspSensors.clearDisplay();
-      dspSensors.setCursor(0, 20);
-      dspSensors.setTextSize(1);
-      dspSensors.println("Brak danych");
-      dspSensors.println("od sensora...");
-      dspSensors.display();
+  OLEDDisplay() : display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET), initialized(false) {}
+  
+  bool begin() {
+    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+      Serial.println("Błąd inicjalizacji OLED");
+      return false;
     }
     
-    void draw3DAnimation() {
-        if (!initialized) return;
-
-        dspAnim.clearDisplay();
-
-        // Fizyka bąbelków
-        bubbles.update();
-
-        // Słoik
-        jar.drawJar(dspAnim);
-
-        // Bąbelki
-        for (int i = 0; i < BubbleSystem::COUNT; i++) {
-            auto &b = bubbles.bubbles[i];
-            dspAnim.drawCircle(b.x, b.y, b.radius(), SSD1306_WHITE);
-        }
-
-        dspAnim.display();
-    }
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.display();
+    
+    initialized = true;
+    Serial.println("OLED zainicjalizowany");
+    return true;
+  }
   
-    void showSensorData(const SensorData &data) {
-        if (!initialized) return;
+  void showConfigMode() {
+    if (!initialized) return;
+    
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.setTextSize(1);
+    display.println("TRYB KONFIGURACJI");
+    display.println("");
+    display.println("Polacz sie z WiFi:");
+    display.println("SSID: ESP32-Config");
+    display.println("Haslo: 12345678");
+    display.println("");
+    display.println("IP: 192.168.4.1");
+    display.display();
+  }
+  
+  void showConfigCountdown(int secondsRemaining) {
+    if (!initialized) return;
+    
+    display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+    display.setCursor(0, 56);
+    display.setTextSize(1);
+    display.print("Pozostalo: ");
+    display.print(secondsRemaining);
+    display.print("s");
+    display.display();
+  }
+  
+  void showConfigPaused(int secondsRemaining) {
+    if (!initialized) return;
+    
+    display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+    display.setCursor(0, 56);
+    display.setTextSize(1);
+    display.print("PAUZA (");
+    display.print(secondsRemaining);
+    display.print("s)");
+    display.display();
+  }
+  
+  void showWaitingForData() {
+    if (!initialized) return;
+    
+    display.clearDisplay();
+    display.setCursor(0, 20);
+    display.setTextSize(1);
+    display.println("Oczekiwanie na");
+    display.println("dane z sensora...");
+    display.display();
+  }
+  
+  void showSensorData(const SensorData& data) {
+    if (!initialized) return;
 
-        dspSensors.clearDisplay();
-        dspSensors.setTextColor(SSD1306_WHITE);
+    display.clearDisplay();
 
-        dspSensors.setCursor(0,0);
-        dspSensors.setTextSize(1);
-        dspSensors.print("Temp: ");
-        dspSensors.setTextSize(2);
-        dspSensors.println(data.temperature);
+    int y = 0;
 
-        dspSensors.setTextSize(1);
-        dspSensors.print("Hum:  ");
-        dspSensors.setTextSize(2);
-        dspSensors.println(data.humidity);
-
-        dspSensors.setTextSize(1);
-        dspSensors.print("Dist: ");
-        dspSensors.setTextSize(2);
-        dspSensors.println(data.distance);
-
-        dspSensors.display();
+    // Temperatura
+    display.setCursor(0, y);
+    display.setTextSize(1);
+    display.print("Temp: ");
+    if (data.temperature > -900) {
+        display.setTextSize(2);
+        display.print(data.temperature, 1);
+        display.println("C");
+    } else {
+        display.println("Error");
     }
+
+    y += 22;
+
+    // Wilgotność
+    display.setCursor(0, y);
+    display.setTextSize(1);
+    display.print("Hum: ");
+    if (data.humidity > -900) {
+        display.setTextSize(2);
+        display.print(data.humidity, 1);
+        display.println("%");
+    } else {
+        display.println("Error");
+    }
+
+    y += 22;
+
+    // Odległość
+    display.setCursor(0, y);
+    display.setTextSize(1);
+    display.print("Dist: ");
+    if (data.distance > 0) {
+        display.setTextSize(2);
+        display.print(data.distance, 1);
+        display.println("cm");
+    } else {
+        display.println("Error");
+    }
+
+    display.display();
+  }
+
+  void showError(const char* message) {
+    if (!initialized) return;
+    
+    display.clearDisplay();
+    display.setCursor(0, 20);
+    display.setTextSize(1);
+    display.println(message);
+    display.display();
+  }
+  
+  void showNoData() {
+    if (!initialized) return;
+    
+    display.clearDisplay();
+    display.setCursor(0, 20);
+    display.setTextSize(1);
+    display.println("Brak danych");
+    display.println("od sensora...");
+    display.display();
+  }
 };
