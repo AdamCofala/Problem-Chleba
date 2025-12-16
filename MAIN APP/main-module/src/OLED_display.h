@@ -41,8 +41,8 @@ public:
     display.println("TRYB KONFIGURACJI");
     display.println("");
     display.println("Polacz sie z WiFi:");
-    display.println("SSID: ESP32-Config");
-    display.println("Haslo: 12345678");
+    display.println("SSID: Zakwas-Chlebowy");
+    display.println("Haslo: chlebek123");
     display.println("");
     display.println("IP: 192.168.4.1");
     display.display();

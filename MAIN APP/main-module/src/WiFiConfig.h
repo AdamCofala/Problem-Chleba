@@ -23,7 +23,7 @@ public:
     
     // Uruchom Access Point
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("ESP32-Config", "12345678");
+    WiFi.softAP("Zakwas-Chlebowy", "chlebek123");
     
     Serial.println("\n>>> WiFi AP uruchomiony");
     Serial.println(">>> SSID: ESP32-Config");
