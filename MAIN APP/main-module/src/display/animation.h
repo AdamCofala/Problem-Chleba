@@ -1,9 +1,15 @@
+#pragma once
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-// -------------------------------------------------------------
-// BUBBLE – pojedynczy bąbelek w cieczy
-// -------------------------------------------------------------
+
+// =============================================================================
+// ANIMACJA BĄBELKÓW - Wizualizacja fermentacji
+// =============================================================================
+
+/**
+ * BUBBLE - pojedynczy bąbelek w cieczy
+ */
 struct Bubble {
     float x, y;         // pozycja
     float vx, vy;       // prędkość (w tym boczna)
@@ -26,9 +32,9 @@ struct Bubble {
     }
 };
 
-// -------------------------------------------------------------
-// BUBBLE SYSTEM – zarządza ruchem, odbiciami, respawnami
-// -------------------------------------------------------------
+/**
+ * BUBBLE SYSTEM - zarządza ruchem, odbiciami, respawnami
+ */
 class BubbleSystem {
 public:
     static const int COUNT = 16;
@@ -66,9 +72,9 @@ public:
     }
 };
 
-// -------------------------------------------------------------
-// JAR RENDERER – wszystko co rysuje słoik 3D + gradient cieczy
-// -------------------------------------------------------------
+/**
+ * JAR RENDERER - rysuje słoik 3D + gradient cieczy
+ */
 class JarRenderer {
 public:
     int x = 35;     // lewy punkt
@@ -79,7 +85,6 @@ public:
     int waterLevel = 38; // od góry
 
     void drawJar(Adafruit_SSD1306 &d) {
-
         // --- Pokrywka ---
         d.fillRect(x, y - 3, w, 3, SSD1306_WHITE);
 
@@ -92,7 +97,7 @@ public:
         // --- Gradient cieczy ---
         for (int i = 0; i < 18; i++) {
             int brightness = (i % 2 == 0);  // pseudo-gradient
-            d.drawLine(x+4, y + waterLevel + i, 
+            d.drawLine(x+4, y + waterLevel + i,
                        x + w - 4, y + waterLevel + i, brightness);
         }
 

@@ -1,215 +1,204 @@
-#include "OLED_display.h"
-#include "ESPNow_receiver.h"
-#include "sensor_data.h"
-#include "WiFiConfig.h"
-#include "animation.h"
+/**
+ * =============================================================================
+ * INKUBATOR ZAKWASU - Moduł Główny
+ * =============================================================================
+ *
+ * Główne funkcje:
+ * - Odbieranie danych z sensora przez ESP-NOW
+ * - Wyświetlanie danych na LCD ST7789
+ * - Animacja zakwasu na OLED SSD1306
+ * - Panel WWW do konfiguracji i monitorowania
+ *
+ * Architektura:
+ * - WiFi działa w trybie AP+STA (Access Point + Station)
+ * - To pozwala na jednoczesne działanie serwera WWW i ESP-NOW
+ * - Użytkownik łączy się z AP "Zakwas-Chlebowy" i wchodzi na 192.168.4.1
+ *
+ * Struktura projektu:
+ * src/
+ *   ├── config/       - Konfiguracja (piny, ustawienia)
+ *   ├── data/         - Struktury danych
+ *   ├── display/      - Wyświetlacze (LCD, OLED)
+ *   ├── comm/         - Komunikacja (ESP-NOW)
+ *   ├── web/          - Serwer WWW i strony HTML
+ *   └── main.cpp      - Główna logika aplikacji
+ *
+ * =============================================================================
+ */
 
-// Inicjalizacja statycznych zmiennych
-SensorData* ESPNowReceiver::receivedData = nullptr;
-bool* ESPNowReceiver::newDataFlag = nullptr;
+// --- Konfiguracja ---
+#include "config/pins.h"
+#include "config/settings.h"
 
-// Tryby pracy
-enum OperationMode {
-  MODE_WIFI_CONFIG,
-  MODE_ESPNOW_RECEIVER
-};
+// --- Dane ---
+#include "data/sensor_data.h"
 
-// Główna klasa aplikacji
-class MainModule {
+// --- Wyświetlacze ---
+#include "display/lcd_display.h"
+#include "display/oled_display.h"
+
+// --- Komunikacja ---
+#include "comm/espnow_receiver.h"
+
+// --- Serwer WWW ---
+#include "web/web_server.h"
+
+// =============================================================================
+// GŁÓWNA KLASA APLIKACJI
+// =============================================================================
+
+class SourdoughIncubator {
 private:
-  OLEDDisplay display;
+  // Komponenty
+  LCDDisplay lcd;
+  OLEDDisplay oled;
   ESPNowReceiver espNow;
-  WiFiConfig wifiConfig;
-  SensorData currentData;
+  WebServerManager webServer;
+
+  // Stan systemu
+  SystemState systemState;
   bool newDataAvailable;
-  unsigned long lastDataTime;
-  unsigned long configStartTime;
-  unsigned long pausedTime; // Czas spędzony w pauzie
-  const unsigned long dataTimeout = 10000; // 10 sekund timeout
-  const unsigned long configTimeout = 90000; // 90 sekund (1.5 minuty) na konfigurację
-  OperationMode currentMode;
-  bool espNowInitialized;
-  bool wasClientConnected;
-  
+  unsigned long lastDisplayUpdate;
+
 public:
-  MainModule() : 
-    newDataAvailable(false), 
-    lastDataTime(0),
-    configStartTime(0),
-    pausedTime(0),
-    currentMode(MODE_WIFI_CONFIG),
-    espNowInitialized(false),
-    wasClientConnected(false) {}
-  
+  SourdoughIncubator() :
+    newDataAvailable(false),
+    lastDisplayUpdate(0) {
+    // Inicjalizuj stan systemu
+    systemState.sensorData = {0, 0, 0, 0};
+    systemState.sourdoughState = SourdoughState::UNKNOWN;
+    systemState.sensorConnected = false;
+    systemState.lastDataTime = 0;
+    systemState.wifiConfigured = false;
+  }
+
+  /**
+   * Inicjalizacja wszystkich komponentów
+   */
   void begin() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n\n=========================");
-    Serial.println("Inicjalizacja modułu głównego (OLED)...");
-    
-    if (!display.begin()) {
-      Serial.println("Nie udało się zainicjalizować OLED!");
+
+
+    // 1. Inicjalizuj wyświetlacze
+    Serial.println("[1/4] Inicjalizacja wyświetlaczy...");
+
+    if (!lcd.begin()) {
+      Serial.println("BŁĄD: Nie można zainicjalizować LCD!");
       while(1) delay(1000);
     }
-    
-    Serial.println("Moduł główny gotowy!");
-    printMacAddress();
-    Serial.println("=========================\n");
-    
-    // Start w trybie konfiguracji WiFi
-    startWiFiConfigMode();
+    lcd.showWelcome();
+
+    if (!oled.begin()) {
+      Serial.println("BŁĄD: Nie można zainicjalizować OLED!");
+      while(1) delay(1000);
+    }
+
+    // 2. Inicjalizuj serwer WWW (to też konfiguruje WiFi w trybie AP+STA)
+    Serial.println("[2/4] Inicjalizacja serwera WWW...");
+    if (!webServer.begin(&systemState)) {
+      Serial.println("BŁĄD: Nie można uruchomić serwera WWW!");
+      lcd.showError("Web Server Error");
+      while(1) delay(1000);
+    }
+
+    // 3. Inicjalizuj ESP-NOW (po skonfigurowaniu WiFi)
+    Serial.println("[3/4] Inicjalizacja ESP-NOW...");
+    if (!espNow.begin(&systemState.sensorData, &newDataAvailable, &systemState.lastDataTime)) {
+      Serial.println("BŁĄD: Nie można zainicjalizować ESP-NOW!");
+      lcd.showError("ESP-NOW Error");
+      while(1) delay(1000);
+    }
+
+    // 4. Gotowe!
+    Serial.println("[4/4] System gotowy!");
+    printStatus();
+
+    lcd.showWaitingForData();
   }
-  
+
+  /**
+   * Główna pętla - wywołuj w loop()
+   */
   void loop() {
-    if (currentMode == MODE_WIFI_CONFIG) {
-      handleWiFiConfigMode();
-    } else {
-      handleESPNowMode();
-    }
+    // Obsługa serwera WWW
+    webServer.loop();
 
+    // Animacja OLED (działa zawsze)
+    oled.loop();
 
-  }
-  
-private:
-  void startWiFiConfigMode() {
-    Serial.println("\n>>> Uruchamianie trybu konfiguracji WiFi");
-    Serial.println(">>> Masz 90 sekund na konfigurację");
-    Serial.println(">>> Timer zatrzyma się gdy ktoś się połączy");
-    
-    display.showConfigMode();
-    
-    if (!wifiConfig.begin()) {
-      Serial.println("Błąd inicjalizacji WiFi Config!");
-      display.showError("WiFi Error");
-      delay(3000);
-      switchToESPNowMode();
-      return;
-    }
-    
-    configStartTime = millis();
-    pausedTime = 0;
-    wasClientConnected = false;
-    currentMode = MODE_WIFI_CONFIG;
-  }
-  
-  void handleWiFiConfigMode() {
-    wifiConfig.loop();
-    
-    // Sprawdź czy klient jest podłączony
-    bool isClientConnected = (WiFi.softAPgetStationNum() > 0);
-    
-    // Obsługa stanu połączenia
-    static unsigned long pauseStartTime = 0;
-    
-    if (isClientConnected && !wasClientConnected) {
-      // Klient się właśnie podłączył - zatrzymaj timer
-      pauseStartTime = millis();
-      wasClientConnected = true;
-      Serial.println(">>> Klient połączony - timer zatrzymany");
-    } else if (!isClientConnected && wasClientConnected) {
-      // Klient się rozłączył - wznów timer
-      pausedTime += (millis() - pauseStartTime);
-      wasClientConnected = false;
-      Serial.println(">>> Klient rozłączony - timer wznowiony");
-    }
-    
-    // Oblicz rzeczywisty upłynięty czas (z uwzględnieniem pauzy)
-    unsigned long actualElapsed;
-    if (isClientConnected) {
-      // Timer jest zatrzymany - użyj czasu z momentu zatrzymania
-      actualElapsed = pauseStartTime - configStartTime - pausedTime;
-    } else {
-      // Timer jest aktywny - odejmij łączny czas pauzy
-      actualElapsed = millis() - configStartTime - pausedTime;
-    }
-    
-    // Sprawdź czy użytkownik zakończył konfigurację lub timeout
-    if (wifiConfig.isConfigComplete() || actualElapsed >= configTimeout) {
-      if (wifiConfig.isConfigComplete()) {
-        Serial.println("Konfiguracja zakończona przez użytkownika");
-      } else {
-        Serial.println("Timeout konfiguracji (90s)");
-      }
-      switchToESPNowMode();
-      return;
-    }
-    
-    // Aktualizuj wyświetlacz co sekundę
-    static unsigned long lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate > 1000) {
-      lastDisplayUpdate = millis();
-      
-      int remainingSeconds = (configTimeout - actualElapsed) / 1000;
-      
-      if (isClientConnected) {
-        display.showConfigPaused(remainingSeconds);
-      } else {
-        display.showConfigCountdown(remainingSeconds);
-      }
-    }
-  }
-  
-  void switchToESPNowMode() {
-    Serial.println("\n>>> Przełączanie na tryb odbiornika ESP-NOW");
-    
-    // Zatrzymaj WiFi Config
-    wifiConfig.stop();
-    
-    // Wyłącz WiFi całkowicie
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    delay(500);
-    
-    // Inicjalizuj ESP-NOW
-    if (!espNow.begin(&currentData, &newDataAvailable)) {
-      Serial.println("Nie udało się zainicjalizować ESP-NOW!");
-      display.showError("Błąd ESP-NOW");
-      while(1) delay(1000);
-    }
-    
-    espNowInitialized = true;
-    currentMode = MODE_ESPNOW_RECEIVER;
-    lastDataTime = millis();
-    
-    display.showWaitingForData();
-    Serial.println(">>> Tryb ESP-NOW aktywny\n");
-  }
-  
-  void handleESPNowMode() {
+    // Obsługa nowych danych z sensora
     if (newDataAvailable) {
       newDataAvailable = false;
-      lastDataTime = millis();
-      display.showSensorData(currentData);
+      systemState.sensorConnected = true;
+
+      // Aktualizuj LCD
+      lcd.showSensorData(systemState.sensorData);
+
+      // Aktualizuj poziom w animacji OLED (na podstawie odległości)
+      // Zakładamy że odległość 5-20cm odpowiada poziomowi 0-100%
+      int level = map(constrain(systemState.sensorData.distance, 5, 20), 20, 5, 0, 100);
+      oled.setWaterLevel(level);
     }
-    
-    // Sprawdź timeout
-    if (millis() - lastDataTime > dataTimeout && lastDataTime > 0) {
-      display.showNoData();
-    }
-    
-    delay(100);
+
+    // Sprawdź timeout danych
+    checkDataTimeout();
   }
-  
-  void printMacAddress() {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    Serial.print("Adres MAC tego ESP32 (UŻYJ GO W NADAJNIKU): ");
-    for (int i = 0; i < 6; i++) {
-      Serial.printf("%02X", mac[i]);
-      if (i < 5) Serial.print(":");
+
+private:
+  /**
+   * Sprawdź czy dane z sensora nie są zbyt stare
+   */
+  void checkDataTimeout() {
+    if (systemState.lastDataTime > 0) {
+      unsigned long elapsed = millis() - systemState.lastDataTime;
+
+      if (elapsed > DATA_TIMEOUT_MS) {
+        if (systemState.sensorConnected) {
+          systemState.sensorConnected = false;
+          lcd.showNoData();
+          Serial.println("UWAGA: Timeout danych z sensora!");
+        }
+      }
     }
+  }
+
+  /**
+   * Wyświetl banner startowy
+   */
+  void printBanner() {
+    Serial.println("\n");
+    Serial.println("╔═══════════════════════════════════════════╗");
+    Serial.println("║       INKUBATOR ZAKWASU CHLEBOWEGO        ║");
+    Serial.println("║              v1.0.0                       ║");
+    Serial.println("╚═══════════════════════════════════════════╝");
     Serial.println();
-    Serial.println("Skopiuj ten adres do zmiennej receiverAddress w kodzie nadajnika!");
+  }
+
+  /**
+   * Wyświetl status systemu
+   */
+  void printStatus() {
+    Serial.println("\n--- Status systemu ---");
+    Serial.printf("WiFi AP: %s\n", AP_SSID);
+    Serial.printf("WiFi Password: %s\n", AP_PASSWORD);
+    Serial.print("AP IP: ");
+    Serial.println(WiFi.softAPIP());
+    Serial.println("Panel WWW: http://192.168.4.1");
+    Serial.println("----------------------\n");
   }
 };
 
-// Instancja głównej klasy
-MainModule mainModule;
+// =============================================================================
+// INSTANCJA I FUNKCJE ARDUINO
+// =============================================================================
+
+SourdoughIncubator incubator;
 
 void setup() {
-  mainModule.begin();
+  incubator.begin();
 }
 
 void loop() {
-  mainModule.loop();
+  incubator.loop();
 }
