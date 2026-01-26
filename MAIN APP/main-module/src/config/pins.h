@@ -1,21 +1,29 @@
 #pragma once
 
 // =============================================================================
-// KONFIGURACJA PINÓW - Inkubator Zakwasu
+// PIN CONFIGURATION - Sourdough Incubator
 // =============================================================================
 
-// --- OLED Display (I2C) ---
-#define OLED_SDA 21
-#define OLED_SCL 19
-#define OLED_RESET -1
-#define OLED_ADDRESS 0x3C
+// -----------------------------------------------------------------------------
+// OLED Display (SSD1306 via I2C)
+// -----------------------------------------------------------------------------
+#define OLED_SDA 21         // I2C Data pin
+#define OLED_SCL 19         // I2C Clock pin
+#define OLED_RESET -1       // Reset pin (-1 if not connected)
+#define OLED_ADDRESS 0x3C   // I2C address (0x3C or 0x3D)
 
-// --- LCD ST7789 (Hardware SPI) ---
-#define TFT_CS    15
-#define TFT_DC    2
-#define TFT_RST   4
+// -----------------------------------------------------------------------------
+// LCD Display (ST7789 via Hardware SPI)
+// -----------------------------------------------------------------------------
+#define TFT_CS    15        // Chip Select pin
+#define TFT_DC    2         // Data/Command pin
+#define TFT_RST   4         // Reset pin
 
-// --- Rozmiary ekranów ---
+// Note: MOSI (23), SCLK (18), MISO (19) are default ESP32 SPI pins
+
+// -----------------------------------------------------------------------------
+// Display Dimensions
+// -----------------------------------------------------------------------------
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
 

@@ -1,0 +1,16 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd \"D:\\\\OneDrive - Politechnika Warszawska\\\\Problem Chleba\\\\MAIN APP\\\\main-module\" ; & \"C:\\\\Users\\\\otwoc\\\\\\.platformio\\\\penv\\\\Scripts\\\\platformio\\.exe\" run$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"D:\\\\OneDrive - Politechnika Warszawska\\\\Problem Chleba\\\\MAIN APP\\\\main-module\" ; & \"C:\\\\Users\\\\otwoc\\\\\\.platformio\\\\penv\\\\Scripts\\\\platformio\\.exe\" run --target upload --target monitor --environment upesy_wroom$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "&": true,
+        "pio": true,
+        "platformio": true,
+        "C:\\Users\\otwoc\\.platformio\\penv\\Scripts\\platformio.exe": true
+    }
+}

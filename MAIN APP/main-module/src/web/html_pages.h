@@ -1,7 +1,16 @@
 #pragma once
 
 // =============================================================================
-// STRONY HTML - Inkubator Zakwasu (Dark Bread Theme)
+// HTML PAGES - Sourdough Incubator Web Interface (Dark Bread Theme)
+// =============================================================================
+//
+// This file contains the embedded HTML/CSS/JavaScript for the web interface.
+// The interface provides:
+// - Real-time sensor data display
+// - WiFi configuration for email notifications
+// - Email recipient configuration
+//
+// Stored in PROGMEM to save RAM on ESP32.
 // =============================================================================
 
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
@@ -165,7 +174,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
     .nav-tabs button.active {
       background: linear-gradient(135deg, var(--primary-dark), var(--accent));
-      color: var(--bg-dark);
+      color: #fdf6e3;
       box-shadow: 0 4px 15px rgba(212,165,116,0.3);
     }
     .tab-content { display: none; }
@@ -241,6 +250,14 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       background: rgba(107,142,78,0.2);
       border-color: var(--success);
       color: #b8d8a8;
+    }
+    .alert-error {
+      background: rgba(196,92,74,0.2);
+      border-color: var(--danger);
+      color: #e8a8a8;
+    }
+    .email-status {
+      margin-top: 16px;
     }
     .sourdough-status {
       text-align: center;
@@ -318,7 +335,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   <div class="container">
     <div class="nav-tabs">
       <button class="active" onclick="showTab('status')">🥖 Zakwas</button>
-      <button onclick="showTab('monitor')">📊 Monitor</button>
       <button onclick="showTab('settings')">⚙️ Ustawienia</button>
     </div>
 
@@ -350,30 +366,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
-    <!-- Tab: Monitor -->
-    <div id="tab-monitor" class="tab-content">
-      <div class="card">
-        <h2>📡 Dane z Sensora</h2>
-        <div class="sensor-grid">
-          <div class="sensor-item">
-            <div class="label">🌡️ Temperatura</div>
-            <div class="value" id="temperature">--</div>
-            <div class="unit">°C</div>
-          </div>
-          <div class="sensor-item">
-            <div class="label">💧 Wilgotność</div>
-            <div class="value" id="humidity">--</div>
-            <div class="unit">%</div>
-          </div>
-          <div class="sensor-item">
-            <div class="label">📏 Poziom</div>
-            <div class="value" id="distance">--</div>
-            <div class="unit">cm</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Tab: Ustawienia -->
     <div id="tab-settings" class="tab-content">
       <div class="card">
@@ -397,19 +389,19 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
 
       <div class="card">
-        <h2>ℹ️ Informacje</h2>
-        <div class="info-row">
-          <span class="label">Adres IP</span>
-          <span class="value" id="deviceIP">192.168.4.1</span>
+        <h2>📧 Ustawienia e-mail</h2>
+        <div class="alert alert-info">
+          <strong>Wysyłka testu:</strong> Po zapisaniu ustawień wyślemy testowy e-mail.
+          Nadawca i serwer SMTP są stałe. Konfigurujesz tylko adres odbiorcy.
         </div>
-        <div class="info-row">
-          <span class="label">Wersja</span>
-          <span class="value">1.0.0</span>
-        </div>
-        <div class="info-row">
-          <span class="label">Uptime</span>
-          <span class="value" id="uptime">--</span>
-        </div>
+        <form id="emailForm" onsubmit="saveEmail(event)">
+          <div class="form-group">
+            <label for="emailRecipient">E-mail odbiorcy</label>
+            <input type="email" id="emailRecipient" name="recipient" placeholder="adres@docelowy.com">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">📨 Zapisz i wyślij test</button>
+        </form>
+        <div class="alert alert-success email-status" id="emailStatus" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -427,17 +419,10 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         const response = await fetch('/api/data');
         const data = await response.json();
 
-        // Main monitor
-        document.getElementById('temperature').textContent = data.temperature.toFixed(1);
-        document.getElementById('humidity').textContent = data.humidity.toFixed(1);
-        document.getElementById('distance').textContent = data.distance.toFixed(1);
-
         // Mini sensors on status tab
         document.getElementById('miniTemp').textContent = data.temperature.toFixed(1) + '°C';
         document.getElementById('miniHum').textContent = data.humidity.toFixed(0) + '%';
         document.getElementById('miniDist').textContent = data.distance.toFixed(1) + 'cm';
-
-        document.getElementById('uptime').textContent = formatUptime(data.uptime);
 
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
@@ -452,13 +437,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         document.getElementById('statusDot').classList.add('offline');
         document.getElementById('statusText').textContent = 'Błąd połączenia';
       }
-    }
-
-    function formatUptime(seconds) {
-      const h = Math.floor(seconds / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      const s = seconds % 60;
-      return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
     }
 
     async function saveWifi(event) {
@@ -501,8 +479,46 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       } catch (error) {}
     }
 
+    async function loadEmailSettings() {
+      try {
+        const response = await fetch('/api/email');
+        const data = await response.json();
+        document.getElementById('emailRecipient').value = data.recipient || '';
+      } catch (error) {}
+    }
+
+    async function saveEmail(event) {
+      event.preventDefault();
+      const payload = {
+        recipient: document.getElementById('emailRecipient').value,
+      };
+
+      const statusBox = document.getElementById('emailStatus');
+      statusBox.style.display = 'none';
+
+      try {
+        const response = await fetch('/api/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        statusBox.textContent = result.message || (result.sent ? 'Wysłano testowy e-mail' : 'Nie udało się wysłać e-maila');
+        statusBox.style.display = 'block';
+        statusBox.className = 'alert email-status ' + (result.sent ? 'alert-success' : 'alert-error');
+        if (!result.sent && result.wifiConnected === false) {
+          statusBox.textContent += ' (Brak połączenia WiFi)';
+        }
+      } catch (error) {
+        statusBox.textContent = 'Błąd zapisu lub wysyłki';
+        statusBox.style.display = 'block';
+        statusBox.className = 'alert email-status alert-error';
+      }
+    }
+
     fetchData();
     loadWifiSettings();
+    loadEmailSettings();
     setInterval(fetchData, 2000);
   </script>
 </body>

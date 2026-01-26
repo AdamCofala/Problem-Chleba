@@ -1,61 +1,61 @@
 /**
  * =============================================================================
- * INKUBATOR ZAKWASU - Moduł Główny
+ * SOURDOUGH INCUBATOR - Main Module
  * =============================================================================
  *
- * Główne funkcje:
- * - Odbieranie danych z sensora przez ESP-NOW
- * - Wyświetlanie danych na LCD ST7789
- * - Animacja zakwasu na OLED SSD1306
- * - Panel WWW do konfiguracji i monitorowania
+ * Main features:
+ * - Receives sensor data via ESP-NOW from remote sensor module
+ * - Displays readings on ST7789 LCD (temperature, humidity, distance)
+ * - Shows sourdough animation on SSD1306 OLED
+ * - Web panel for configuration and monitoring (http://zakwas.local)
  *
- * Architektura:
- * - WiFi działa w trybie AP+STA (Access Point + Station)
- * - To pozwala na jednoczesne działanie serwera WWW i ESP-NOW
- * - Użytkownik łączy się z AP "Zakwas-Chlebowy" i wchodzi na 192.168.4.1
+ * Architecture:
+ * - WiFi runs in AP+STA mode (Access Point + Station simultaneously)
+ * - This allows web server and ESP-NOW to work together
+ * - User connects to AP "Zakwas-Chlebowy" and accesses 192.168.4.1 or zakwas.local
  *
- * Struktura projektu:
+ * Project structure:
  * src/
- *   ├── config/       - Konfiguracja (piny, ustawienia)
- *   ├── data/         - Struktury danych
- *   ├── display/      - Wyświetlacze (LCD, OLED)
- *   ├── comm/         - Komunikacja (ESP-NOW)
- *   ├── web/          - Serwer WWW i strony HTML
- *   └── main.cpp      - Główna logika aplikacji
+ *   ├── config/       - Configuration (pins, settings)
+ *   ├── data/         - Data structures
+ *   ├── display/      - Displays (LCD, OLED)
+ *   ├── comm/         - Communication (ESP-NOW)
+ *   ├── web/          - Web server and HTML pages
+ *   └── main.cpp      - Main application logic
  *
  * =============================================================================
  */
 
-// --- Konfiguracja ---
+// Configuration
 #include "config/pins.h"
 #include "config/settings.h"
 
-// --- Dane ---
+// Data structures
 #include "data/sensor_data.h"
 
-// --- Wyświetlacze ---
+// Displays
 #include "display/lcd_display.h"
 #include "display/oled_display.h"
 
-// --- Komunikacja ---
+// Communication
 #include "comm/espnow_receiver.h"
 
-// --- Serwer WWW ---
+// Web server
 #include "web/web_server.h"
 
 // =============================================================================
-// GŁÓWNA KLASA APLIKACJI
+// MAIN APPLICATION CLASS
 // =============================================================================
 
 class SourdoughIncubator {
 private:
-  // Komponenty
+  // Hardware components
   LCDDisplay lcd;
   OLEDDisplay oled;
   ESPNowReceiver espNow;
   WebServerManager webServer;
 
-  // Stan systemu
+  // System state
   SystemState systemState;
   bool newDataAvailable;
   unsigned long lastDisplayUpdate;
@@ -64,90 +64,109 @@ public:
   SourdoughIncubator() :
     newDataAvailable(false),
     lastDisplayUpdate(0) {
-    // Inicjalizuj stan systemu
+    // Initialize system state with defaults
     systemState.sensorData = {0, 0, 0, 0};
     systemState.sourdoughState = SourdoughState::UNKNOWN;
     systemState.sensorConnected = false;
     systemState.lastDataTime = 0;
     systemState.wifiConfigured = false;
+    systemState.wifiConnected = false;
+    systemState.sendingEmail = false;
   }
 
   /**
-   * Inicjalizacja wszystkich komponentów
+   * Initialize all system components
+   * Called once from setup()
    */
   void begin() {
     Serial.begin(115200);
     delay(1000);
 
-
-    // 1. Inicjalizuj wyświetlacze
-    Serial.println("[1/4] Inicjalizacja wyświetlaczy...");
+    // Step 1: Initialize displays
+    Serial.println("[1/4] Initializing displays...");
 
     if (!lcd.begin()) {
-      Serial.println("BŁĄD: Nie można zainicjalizować LCD!");
+      Serial.println("ERROR: LCD initialization failed!");
       while(1) delay(1000);
     }
     lcd.showWelcome();
 
     if (!oled.begin()) {
-      Serial.println("BŁĄD: Nie można zainicjalizować OLED!");
+      Serial.println("ERROR: OLED initialization failed!");
       while(1) delay(1000);
     }
 
-    // 2. Inicjalizuj serwer WWW (to też konfiguruje WiFi w trybie AP+STA)
-    Serial.println("[2/4] Inicjalizacja serwera WWW...");
+    // Step 2: Initialize web server (also configures WiFi in AP+STA mode)
+    Serial.println("[2/4] Initializing web server...");
     if (!webServer.begin(&systemState)) {
-      Serial.println("BŁĄD: Nie można uruchomić serwera WWW!");
+      Serial.println("ERROR: Web server initialization failed!");
       lcd.showError("Web Server Error");
       while(1) delay(1000);
     }
+    webServer.setLCD(&lcd);  // Pass LCD pointer for email status display
 
-    // 3. Inicjalizuj ESP-NOW (po skonfigurowaniu WiFi)
-    Serial.println("[3/4] Inicjalizacja ESP-NOW...");
+    // Step 3: Initialize ESP-NOW (must be after WiFi configuration)
+    Serial.println("[3/4] Initializing ESP-NOW...");
     if (!espNow.begin(&systemState.sensorData, &newDataAvailable, &systemState.lastDataTime)) {
-      Serial.println("BŁĄD: Nie można zainicjalizować ESP-NOW!");
+      Serial.println("ERROR: ESP-NOW initialization failed!");
       lcd.showError("ESP-NOW Error");
       while(1) delay(1000);
     }
 
-    // 4. Gotowe!
-    Serial.println("[4/4] System gotowy!");
+    // Step 4: Ready!
+    Serial.println("[4/4] System ready!");
     printStatus();
 
     lcd.showWaitingForData();
   }
 
   /**
-   * Główna pętla - wywołuj w loop()
+   * Main loop - call from Arduino loop()
    */
   void loop() {
-    // Obsługa serwera WWW
+    // Handle web server requests
     webServer.loop();
 
-    // Animacja OLED (działa zawsze)
+    // Update OLED animation (runs continuously)
     oled.loop();
 
-    // Obsługa nowych danych z sensora
+    // If email is being sent, show status and skip sensor processing
+    if (systemState.sendingEmail) {
+      static bool emailScreenShown = false;
+      if (!emailScreenShown) {
+        lcd.showSendingEmail();
+        emailScreenShown = true;
+      }
+      return;  // Don't process sensor data during email send
+    } else {
+      static bool emailScreenShown = false;
+      if (emailScreenShown) {
+        emailScreenShown = false;
+        lcd.forceRedraw();
+      }
+    }
+
+    // Process new sensor data when available
     if (newDataAvailable) {
       newDataAvailable = false;
       systemState.sensorConnected = true;
 
-      // Aktualizuj LCD
+      // Update LCD with sensor readings
       lcd.showSensorData(systemState.sensorData);
 
-      // Aktualizuj poziom w animacji OLED (na podstawie odległości)
-      // Zakładamy że odległość 5-20cm odpowiada poziomowi 0-100%
+      // Update OLED animation level based on distance
+      // Assumes distance 5-20cm maps to 0-100% fill level
       int level = map(constrain(systemState.sensorData.distance, 5, 20), 20, 5, 0, 100);
       oled.setWaterLevel(level);
     }
 
-    // Sprawdź timeout danych
+    // Check for sensor data timeout
     checkDataTimeout();
   }
 
 private:
   /**
-   * Sprawdź czy dane z sensora nie są zbyt stare
+   * Check if sensor data has timed out (no data received recently)
    */
   void checkDataTimeout() {
     if (systemState.lastDataTime > 0) {
@@ -157,40 +176,38 @@ private:
         if (systemState.sensorConnected) {
           systemState.sensorConnected = false;
           lcd.showNoData();
-          Serial.println("UWAGA: Timeout danych z sensora!");
+          Serial.println("WARNING: Sensor data timeout!");
         }
       }
     }
   }
 
   /**
-   * Wyświetl banner startowy
+   * Print startup banner to Serial
    */
   void printBanner() {
     Serial.println("\n");
-    Serial.println("╔═══════════════════════════════════════════╗");
-    Serial.println("║       INKUBATOR ZAKWASU CHLEBOWEGO        ║");
-    Serial.println("║              v1.0.0                       ║");
-    Serial.println("╚═══════════════════════════════════════════╝");
+    Serial.println("============================================");
+    Serial.println("       SOURDOUGH INCUBATOR v1.0.0");
+    Serial.println("============================================");
     Serial.println();
   }
 
   /**
-   * Wyświetl status systemu
+   * Print system status to Serial
    */
   void printStatus() {
-    Serial.println("\n--- Status systemu ---");
+    Serial.println("\n--- System Status ---");
     Serial.printf("WiFi AP: %s\n", AP_SSID);
     Serial.printf("WiFi Password: %s\n", AP_PASSWORD);
-    Serial.print("AP IP: ");
-    Serial.println(WiFi.softAPIP());
-    Serial.println("Panel WWW: http://192.168.4.1");
-    Serial.println("----------------------\n");
+    Serial.printf("AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+    Serial.println("Web panel: http://zakwas.local");
+    Serial.println("---------------------\n");
   }
 };
 
 // =============================================================================
-// INSTANCJA I FUNKCJE ARDUINO
+// ARDUINO ENTRY POINTS
 // =============================================================================
 
 SourdoughIncubator incubator;
